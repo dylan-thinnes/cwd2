@@ -1,0 +1,144 @@
+#!/bin/bash
+############################## CONFIGURATION ##################################
+# Path to history file
+CWD_HISTORY_FILE=${CWD_HISTORY_FILE:-~/.cwd_history}
+
+# Configures whether the user would like to enter indices by 1 or by 0
+ZEROINDEX=${ZEROINDEX:-0}
+function _indexify () {
+    local DEFINDEX=$ZEROINDEX
+    local SHOULDINC=$((($ZEROINDEX + 1) % 2))
+    echo $((${1:-$DEFINDEX} + $SHOULDINC))
+}
+
+# Configures where cwd is disabled and whether it can be overriden
+CWD_DISABLED=${CWD_DISABLED:-0}
+function _has_flag () {
+    local C=0
+    for i in $@
+    do
+        if (( $C > 0 ))
+        then
+            if [[ "$i" == "-$1" ]]
+            then
+                return 0
+            fi
+        fi
+        C=$(($C + 1))
+    done
+    return 1
+}
+
+############################## UTILITIES ######################################
+# Utility for printing to stdout
+function echoerr () { cat <<< "$@" 1>&2; }
+
+# Check if history exists and is non-empty
+function _hist_exists () {
+    [[ -e "$CWD_HISTORY_FILE" ]] && [[ -s "$CWD_HISTORY_FILE" ]]
+}
+
+# Getting the nth line from the beginning and end of a file
+function nth () {
+    local L=`cat "$1" | wc -l`
+    local N=`indexify "$2"`
+    if (( $N > $L )) || (( $N <= 0 ))
+    then
+        return 1
+    fi
+    head -n "$N" "$1" | tail -n1
+}
+function neg_nth () {
+    tac "$1" | nth "-" "$2"
+}
+
+############################## SUBROUTINES ####################################
+function _cwd_show () {
+    _hist_exists && echo `head -n1 "$CWD_HISTORY_FILE"`
+}
+function _cwd_list () {
+    _hist_exists && echo "`cat -n "$CWD_HISTORY_FILE"`"
+}
+function _cwd_add () {
+    if _hist_exists
+    then
+        local PREV="`cat "$CWD_HISTORY_FILE"`"
+        echo `pwd` > "$CWD_HISTORY_FILE"
+        echo "$PREV" >> "$CWD_HISTORY_FILE"
+    else
+        echo `pwd` > "$CWD_HISTORY_FILE"
+    fi
+}
+function _cwd_go () {
+    local DIR="`_cwd_show`"
+    if (( $? == 0 ))
+    then
+        cd "$DIR"
+    fi
+}
+function _cwd_clear () {
+    if _hist_exists
+    then
+        rm "$CWD_HISTORY_FILE"
+        touch "$CWD_HISTORY_FILE"
+    fi
+}
+function _cwd_rem () {
+    local REMAINDER=`tail -n+2 "$CWD_HISTORY_FILE"`
+    if [[ -z "$REMAINDER" ]]
+    then
+        _cwd_clear
+    else
+        echo "$REMAINDER" > "$CWD_HISTORY_FILE"
+    fi
+}
+function _cwd_swap () {
+    _cwd rem add
+}
+function _cwd_pop () {
+    local TOP=`_cwd_show`
+    if (( $? == 0 ))
+    then
+        _cwd_rem
+        cd "$TOP"
+    fi
+}
+
+############################## MAIN PROGRAM ###################################
+# Entrypoint function - handles flags before getting to executing actions
+function cwd () {
+    if (( $CWD_DISABLED == 1 )) && (! _has_flag "o" $@)
+    then
+        echoerr '`cwd` is disabled. Set CWD_DISABLED to 0 to reenable it, or pass it the override flag -o.'
+        return 1
+    fi
+    if _has_flag "h" $@
+    then
+        echoerr 'Help is not currently available.'
+        return 1
+    fi
+
+    _cwd $@
+}
+
+# Heavy lifter - turns main args into actions
+function _cwd () {
+
+    for i in $@
+    do
+        if (echo "$i" | grep "\-.*" -s > /dev/null); then true
+        elif [[ "$i" == "show"                   ]]; then _cwd_show
+        elif [[ "$i" == "list"                   ]]; then _cwd_list
+        elif [[ "$i" == "add"                    ]]; then _cwd_add
+        elif [[ "$i" == "rem"                    ]]; then _cwd_rem
+        elif [[ "$i" == "clear"                  ]]; then _cwd_clear
+        elif [[ "$i" == "pop"                    ]]; then _cwd_pop
+        elif [[ "$i" == "swap"                   ]]; then _cwd_swap
+        elif [[ "$i" == "go"                     ]]; then _cwd_go
+        else echoerr "Unidentifiable command $i. Ignoring."
+        fi
+    done
+}
+
+# RUN CWD
+cwd $@
